@@ -1,9 +1,11 @@
-// Types and helpers matching the firmware protocol in ../../../src/main.cpp
+// Types and helpers matching the firmware protocol in ../../../src/ (device.cpp, ota.cpp)
 
 export type Mode = 'solid' | 'blink' | 'breathe'
 
-/** Retained JSON on <prefix>/state */
+/** Retained JSON on <base>/<id>/state */
 export interface DeviceState {
+  id: string
+  name: string
   on: boolean
   brightness: number
   mode: Mode
@@ -23,14 +25,14 @@ export interface DeviceState {
   time: number
 }
 
-/** JSON accepted on <prefix>/cmd (any subset) */
-export type Command = Partial<Pick<DeviceState, 'on' | 'brightness' | 'mode' | 'period' | 'interval'>> & {
+/** JSON accepted on <base>/<id>/cmd (any subset) */
+export type Command = Partial<Pick<DeviceState, 'on' | 'brightness' | 'mode' | 'period' | 'interval' | 'name'>> & {
   action?: 'restart' | 'logs' | 'state' | 'update'
   /** Firmware .bin to install, with action 'update' */
   url?: string
 }
 
-/** JSON on <prefix>/ota while the device installs an update */
+/** JSON on <base>/<id>/ota while the device installs an update */
 export interface RawOta {
   state: 'downloading' | 'rebooting' | 'failed'
   progress?: number
@@ -70,7 +72,7 @@ export function compareVersions(a: string, b: string) {
 
 export type LogLevel = 'I' | 'W' | 'E'
 
-/** JSON on <prefix>/log */
+/** JSON on <base>/<id>/log */
 export interface RawLog {
   seq: number
   ts: number // epoch ms, 0 before the device clock synced
@@ -96,14 +98,31 @@ export interface ConnectionSettings {
   url: string
   username: string
   password: string
-  prefix: string
+  /** Topic base shared by all boards (TOPIC_BASE in the firmware's secrets.h) */
+  base: string
 }
 
 export const DEFAULT_SETTINGS: ConnectionSettings = {
   url: 'wss://5a476a1b4c814901b54584ec2ba638c7.s1.eu.hivemq.cloud:8884/mqtt',
   username: '',
   password: '',
-  prefix: 'mivebe/esp32-1',
+  base: 'mivebe',
+}
+
+export type DeviceStatus = 'online' | 'offline' | 'unknown'
+
+/** Everything the web app knows about one board */
+export interface Device {
+  id: string
+  status: DeviceStatus
+  state: DeviceState | null
+  /** When the last state arrived (browser time, ms) */
+  stateAt: number | null
+  ota: OtaProgress | null
+}
+
+export function deviceLabel(d: Pick<Device, 'id' | 'state'>) {
+  return d.state?.name || d.id
 }
 
 export function formatDuration(totalSeconds: number) {

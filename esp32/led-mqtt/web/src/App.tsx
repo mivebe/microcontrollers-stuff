@@ -23,19 +23,24 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ConnectionForm } from '@/components/connection-form'
 import { ControlTab } from '@/components/control-tab'
+import { DevicePicker } from '@/components/device-picker'
 import { DeviceTab } from '@/components/device-tab'
 import { LogsTab } from '@/components/logs-tab'
-import { useDevice, type BrokerStatus, type DeviceStatus } from '@/hooks/use-device'
+import { useDevices, type BrokerStatus } from '@/hooks/use-devices'
 import { useFirmware } from '@/hooks/use-firmware'
 import { cn } from '@/lib/utils'
-import { type ConnectionSettings, DEFAULT_SETTINGS, compareVersions } from '@/lib/device'
+import { type ConnectionSettings, type DeviceStatus, DEFAULT_SETTINGS, compareVersions, deviceLabel } from '@/lib/device'
 
 const STORAGE_KEY = 'led-mqtt-settings'
 
 function loadSettings(): ConnectionSettings | null {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null')
-    return saved?.username ? { ...DEFAULT_SETTINGS, ...saved } : null
+    if (!saved?.username) return null
+    // Older versions stored one device's full prefix ("mivebe/esp32-1"); keep its base
+    if (!saved.base && typeof saved.prefix === 'string') saved.base = saved.prefix.split('/')[0]
+    const { prefix: _prefix, ...rest } = saved
+    return { ...DEFAULT_SETTINGS, ...rest }
   } catch {
     return null
   }
@@ -64,14 +69,15 @@ export default function App() {
 function Dashboard() {
   const [settings, setSettings] = useState<ConnectionSettings | null>(loadSettings)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const device = useDevice(settings)
+  const devices = useDevices(settings)
+  const device = devices.selected
   const firmware = useFirmware()
   const [tab, setTab] = useState('control')
 
-  const connected = device.broker === 'connected'
-  const controllable = connected && device.status === 'online'
+  const connected = devices.broker === 'connected'
+  const controllable = connected && device?.status === 'online'
   const latestFw = firmware.latest?.version
-  const updateAvailable = !!latestFw && !!device.state?.fw && compareVersions(latestFw, device.state.fw) > 0
+  const updateAvailable = !!latestFw && !!device?.state?.fw && compareVersions(latestFw, device.state.fw) > 0
 
   function save(s: ConnectionSettings | null) {
     storeSettings(s)
@@ -87,11 +93,15 @@ function Dashboard() {
         </div>
         <div className="min-w-0 flex-1">
           <h1 className="text-lg leading-tight font-semibold">ESP32 Remote</h1>
-          <p className="truncate font-mono text-xs text-muted-foreground">{settings?.prefix ?? 'not connected'}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            {!settings
+              ? 'not connected'
+              : `${devices.devices.length} device${devices.devices.length === 1 ? '' : 's'} · ${settings.base}`}
+          </p>
         </div>
         {/* Fixed-size slot so the spinner never shifts the layout */}
         <span className="grid size-8 place-items-center" role="status" aria-live="polite">
-          {device.pending && <Loader2 className="size-4 animate-spin text-sky-500" aria-label="Applying change" />}
+          {devices.pending && <Loader2 className="size-4 animate-spin text-sky-500" aria-label="Applying change" />}
         </span>
         <ThemeToggle />
         {settings && (
@@ -113,9 +123,19 @@ function Dashboard() {
         </Card>
       ) : (
         <>
+          <DevicePicker
+            devices={devices.devices}
+            selectedId={devices.selectedId}
+            select={devices.select}
+            firmware={firmware}
+            queue={devices.queue}
+            updateAll={devices.updateAll}
+            cancelUpdateAll={devices.cancelUpdateAll}
+          />
+
           <div className="flex flex-wrap gap-2">
-            <BrokerBadge status={device.broker} />
-            <DeviceBadge status={device.status} />
+            <BrokerBadge status={devices.broker} />
+            {device && <DeviceBadge status={device.status} />}
             {updateAvailable && (
               <button onClick={() => setTab('device')}>
                 <Badge variant="outline" className="gap-1.5 text-sky-600 dark:text-sky-400">
@@ -125,17 +145,23 @@ function Dashboard() {
             )}
           </div>
 
-          {device.error && device.broker !== 'connected' && (
+          {devices.error && devices.broker !== 'connected' && (
             <Banner tone="error">
-              Broker: {device.error}.{' '}
+              Broker: {devices.error}.{' '}
               <button className="underline" onClick={() => setSettingsOpen(true)}>
                 Check settings
               </button>
             </Banner>
           )}
-          {connected && device.status === 'offline' && (
+          {connected && device?.status === 'offline' && (
             <Banner tone="warn">
-              The ESP32 is offline (no power or no WiFi). Controls unlock as soon as it reconnects.
+              {deviceLabel(device)} is offline (no power or no WiFi). Controls unlock as soon as it reconnects.
+            </Banner>
+          )}
+          {connected && !devices.devices.length && (
+            <Banner tone="warn">
+              No boards found under <span className="font-mono">{settings.base}/</span> yet. They appear here as soon as
+              they connect to the broker.
             </Banner>
           )}
 
@@ -146,7 +172,7 @@ function Dashboard() {
               </TabsTrigger>
               <TabsTrigger value="logs">
                 <ScrollText /> Logs
-                {device.logs.some((l) => l.lvl === 'E') && <span className="size-1.5 rounded-full bg-red-500" />}
+                {devices.logs.some((l) => l.lvl === 'E') && <span className="size-1.5 rounded-full bg-red-500" />}
               </TabsTrigger>
               <TabsTrigger value="device">
                 <Cpu /> Device
@@ -154,21 +180,21 @@ function Dashboard() {
               </TabsTrigger>
             </TabsList>
             <TabsContent value="control">
-              <ControlTab state={device.state} disabled={!controllable} send={device.send} />
+              <ControlTab state={device?.state ?? null} disabled={!controllable} send={devices.send} />
             </TabsContent>
             <TabsContent value="logs">
-              <LogsTab logs={device.logs} connected={controllable} send={device.send} clear={device.clearLogs} />
+              <LogsTab logs={devices.logs} connected={controllable} send={devices.send} clear={devices.clearLogs} />
             </TabsContent>
             <TabsContent value="device">
               <DeviceTab
-                state={device.state}
-                stateAt={device.stateAt}
+                key={device?.id}
+                device={device}
                 disabled={!controllable}
-                send={device.send}
+                send={devices.send}
                 firmware={firmware}
-                ota={device.ota}
-                update={device.update}
-                dismissOta={device.dismissOta}
+                update={(url, version) => device && devices.update(device.id, url, version)}
+                dismissOta={() => device && devices.dismissOta(device.id)}
+                forget={() => device && devices.forget(device.id)}
               />
             </TabsContent>
           </Tabs>
@@ -177,7 +203,7 @@ function Dashboard() {
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Connection settings</DialogTitle>
-                <DialogDescription>HiveMQ Cloud login and the device's topic prefix.</DialogDescription>
+                <DialogDescription>HiveMQ Cloud login and the topic base your boards use.</DialogDescription>
               </DialogHeader>
               <ConnectionForm initial={settings} onSave={save} onForget={() => save(null)} submitLabel="Save & reconnect" />
             </DialogContent>

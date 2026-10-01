@@ -23,7 +23,7 @@ export function ConnectionForm({ initial, onSave, onForget, submitLabel = 'Conne
       className="grid gap-4"
       onSubmit={(e) => {
         e.preventDefault()
-        onSave({ ...form, url: form.url.trim(), username: form.username.trim(), prefix: form.prefix.trim() })
+        onSave({ ...form, url: form.url.trim(), username: form.username.trim(), base: form.base.trim().replace(/\/+$/, '') })
       }}
     >
       <Field id="username" label="Username" icon={User}>
@@ -53,8 +53,8 @@ export function ConnectionForm({ initial, onSave, onForget, submitLabel = 'Conne
       <Field id="url" label="Broker WebSocket URL" icon={Link2}>
         <Input id="url" value={form.url} onChange={set('url')} className="font-mono text-xs" required />
       </Field>
-      <Field id="prefix" label="Topic prefix" icon={Tag}>
-        <Input id="prefix" value={form.prefix} onChange={set('prefix')} className="font-mono text-xs" required />
+      <Field id="base" label="Topic base (shared by all boards)" icon={Tag}>
+        <Input id="base" value={form.base} onChange={set('base')} className="font-mono text-xs" required />
       </Field>
       <p className="text-xs text-muted-foreground">
         Use the HiveMQ credential made for this web app, not the device one. Saved only in this browser.

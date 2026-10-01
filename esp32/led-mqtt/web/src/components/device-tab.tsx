@@ -10,9 +10,12 @@ import {
   MemoryStick,
   Network,
   Package,
+  Pencil,
   RefreshCw,
   RotateCcw,
+  Tag,
   Timer,
+  Trash2,
   Wifi,
 } from 'lucide-react'
 import {
@@ -28,12 +31,13 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import type { useFirmware } from '@/hooks/use-firmware'
 import {
   type Command,
-  type DeviceState,
+  type Device,
   type OtaProgress,
   compareVersions,
   formatBytes,
@@ -50,18 +54,19 @@ const INTERVALS = [
 ]
 
 interface Props {
-  state: DeviceState | null
-  stateAt: number | null
+  device: Device | null
   disabled: boolean
   send: (cmd: Command) => void
   firmware: ReturnType<typeof useFirmware>
-  ota: OtaProgress | null
   update: (url: string, version: string) => void
   dismissOta: () => void
+  forget: () => void
 }
 
-export function DeviceTab({ state, stateAt, disabled, send, firmware, ota, update, dismissOta }: Props) {
+export function DeviceTab({ device, disabled, send, firmware, update, dismissOta, forget }: Props) {
   const now = useNow()
+  const state = device?.state ?? null
+  const stateAt = device?.stateAt ?? null
   // Uptime keeps counting between state reports
   const uptime = state && stateAt ? state.uptime + (now - stateAt) / 1000 : null
   const signal = state ? signalQuality(state.rssi) : null
@@ -106,6 +111,7 @@ export function DeviceTab({ state, stateAt, disabled, send, firmware, ota, updat
         </CardHeader>
         <CardContent>
           <dl className="grid gap-3 text-sm">
+            <Row icon={Tag} label="Device id" value={device?.id} mono />
             <Row icon={Package} label="Firmware" value={state?.fw && `v${state.fw}`} />
             <Row icon={Cpu} label="Chip" value={state?.chip && `${state.chip} @ ${state.cpuMhz} MHz`} />
             <Row icon={Wifi} label="Network" value={state?.ssid} />
@@ -115,10 +121,12 @@ export function DeviceTab({ state, stateAt, disabled, send, firmware, ota, updat
         </CardContent>
       </Card>
 
+      <NameCard key={device?.id} id={device?.id} name={state?.name ?? ''} disabled={disabled} send={send} />
+
       <FirmwareCard
         installed={state?.fw}
         firmware={firmware}
-        ota={ota}
+        ota={device?.ota ?? null}
         disabled={disabled}
         update={update}
         dismissOta={dismissOta}
@@ -190,7 +198,81 @@ export function DeviceTab({ state, stateAt, disabled, send, firmware, ota, updat
           </AlertDialog>
         </CardContent>
       </Card>
+
+      {device && device.status !== 'online' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Trash2 className="size-4" /> Remove from list
+            </CardTitle>
+            <CardDescription>
+              For a board that is gone for good. It clears what the broker remembers about it. If the board ever comes
+              back online, it shows up again.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="outline" onClick={forget}>
+              <Trash2 /> Forget {device.state?.name || device.id}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
     </div>
+  )
+}
+
+function NameCard({
+  id,
+  name,
+  disabled,
+  send,
+}: {
+  id?: string
+  name: string
+  disabled: boolean
+  send: (cmd: Command) => void
+}) {
+  const [value, setValue] = useState(name)
+  // Follow the reported name unless the user is mid-edit
+  const [editing, setEditing] = useState(false)
+  useEffect(() => {
+    if (!editing) setValue(name)
+  }, [name, editing])
+
+  const changed = value.trim() !== name
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Pencil className="size-4" /> Name
+        </CardTitle>
+        <CardDescription>Shown in the device list instead of the id {id && <span className="font-mono">{id}</span>}.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form
+          className="flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            send({ name: value.trim() })
+            setEditing(false)
+          }}
+        >
+          <Input
+            value={value}
+            maxLength={32}
+            placeholder="e.g. Living room"
+            onChange={(e) => {
+              setValue(e.target.value)
+              setEditing(true)
+            }}
+            disabled={disabled}
+          />
+          <Button type="submit" disabled={disabled || !changed}>
+            Save
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   )
 }
 
