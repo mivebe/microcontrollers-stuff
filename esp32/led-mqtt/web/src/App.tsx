@@ -83,6 +83,10 @@ function Dashboard() {
           <h1 className="text-lg leading-tight font-semibold">ESP32 Remote</h1>
           <p className="truncate font-mono text-xs text-muted-foreground">{settings?.prefix ?? 'not connected'}</p>
         </div>
+        {/* Fixed-size slot so the spinner never shifts the layout */}
+        <span className="grid size-8 place-items-center" role="status" aria-live="polite">
+          {device.pending && <Loader2 className="size-4 animate-spin text-sky-500" aria-label="Applying change" />}
+        </span>
         <ThemeToggle />
         {settings && (
           <Button variant="outline" size="icon" onClick={() => setSettingsOpen(true)} aria-label="Connection settings">
@@ -106,11 +110,6 @@ function Dashboard() {
           <div className="flex flex-wrap gap-2">
             <BrokerBadge status={device.broker} />
             <DeviceBadge status={device.status} />
-            {device.pending && (
-              <Badge variant="outline" className="gap-1">
-                <Loader2 className="animate-spin" /> Applying…
-              </Badge>
-            )}
           </div>
 
           {device.error && device.broker !== 'connected' && (
