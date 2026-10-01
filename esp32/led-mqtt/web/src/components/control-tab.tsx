@@ -48,21 +48,28 @@ export function ControlTab({ state, disabled, send }: Props) {
             onClick={() => send({ on: !on })}
             aria-label={on ? 'Turn LED off' : 'Turn LED on'}
             className={cn(
-              'relative grid size-36 place-items-center rounded-full border-2 transition-all duration-300',
+              'relative grid size-36 place-items-center rounded-full border-2 bg-muted transition-colors duration-300',
               'focus-visible:ring-4 focus-visible:ring-sky-500/40 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50',
-              on
-                ? 'border-sky-400 bg-sky-500 text-white shadow-[0_0_60px_-5px] shadow-sky-500/70'
-                : 'border-border bg-muted text-muted-foreground hover:border-foreground/30',
+              on ? 'border-sky-400/60 text-sky-600 dark:text-sky-300' : 'border-border text-muted-foreground hover:border-foreground/30',
             )}
-            style={on ? { opacity: disabled ? 0.5 : 0.55 + (brightness / 100) * 0.45 } : undefined}
           >
-            {on && mode !== 'solid' && (
-              <span
-                className={cn('absolute inset-0 rounded-full bg-sky-400/40', mode === 'blink' ? 'animate-ping' : 'animate-pulse')}
-                style={{ animationDuration: `${period}ms` }}
-              />
+            {on ? <Lightbulb className="size-14" /> : <LightbulbOff className="size-14" />}
+            {/* The lit LED: brightness sets how strong it gets, the effect animates it like the real one */}
+            {on && (
+              <span className="absolute -inset-0.5 transition-opacity duration-300" style={{ opacity: 0.35 + (brightness / 100) * 0.65 }}>
+                <span
+                  key={`${mode}-${period}`}
+                  className={cn(
+                    'absolute inset-0 grid place-items-center rounded-full bg-sky-500 text-white shadow-[0_0_60px_-5px] shadow-sky-500/70',
+                    mode === 'breathe' && 'led-breathe',
+                    mode === 'blink' && 'led-blink',
+                  )}
+                  style={{ '--led-period': `${period}ms` } as React.CSSProperties}
+                >
+                  <Lightbulb className="size-14" />
+                </span>
+              </span>
             )}
-            {on ? <Lightbulb className="relative size-14" /> : <LightbulbOff className="relative size-14" />}
           </button>
 
           <div className="flex items-center gap-3">

@@ -12,6 +12,7 @@
 
 static const uint32_t PORTAL_AFTER_MS = 3 * 60 * 1000;      // open the portal after this long without WiFi
 static const uint32_t PORTAL_MAX_CONNECTED_MS = 5 * 60 * 1000;  // close it this long after WiFi is back, even if a phone is still on it
+static const uint32_t PORTAL_AFTER_SETUP_MS = 30 * 1000;    // close it this long after a setup succeeded (the page has shown "Connected!")
 static const uint32_t RETRY_MS = 20 * 1000;                 // retry the known networks this often
 static const uint32_t RETRY_PORTAL_MS = 60 * 1000;          // ...less often while the portal is open
 static const uint32_t CONNECT_TIMEOUT_MS = 15 * 1000;
@@ -27,6 +28,7 @@ static bool reportedMissing = false;  // "no known network in range" logged for 
 // A network entered on the portal and how connecting to it went: "", connecting, connected, failed
 static String trySsid, tryResult;
 static uint32_t tryStartMs = 0;
+static uint32_t tryDoneMs = 0;  // when tryResult became "connected"
 
 // ---------------------------------------------------------------------------
 // Connecting to known networks
@@ -111,7 +113,7 @@ $('f').onsubmit=async e=>{
   const poll=async()=>{
     try{
       const s=await (await fetch('/status')).json();
-      if(s.result==='connected')return msg('ok','Connected! The board is online. You can close this page.');
+      if(s.result==='connected')return msg('ok','Connected! The board is online. In half a minute this setup network goes away; switch your phone back to your usual WiFi.');
       if(s.result==='failed')return msg('bad','Could not connect to '+s.ssid+'. Check the password and try again.');
     }catch(e){
       if(Date.now()-t0>8000)return msg('wait','Lost contact with the board. That is normal while it switches to your WiFi. When its light stops double-blinking, it is online.');
@@ -253,6 +255,7 @@ void wifiLoop() {
   if (tryResult == "connecting") {
     if (up && WiFi.SSID() == trySsid && upSinceMs >= tryStartMs) {
       tryResult = "connected";
+      tryDoneMs = now;
     } else if (now - tryStartMs > CONNECT_TIMEOUT_MS) {
       tryResult = "failed";
       logf('W', "Setup portal: could not connect to \"%s\"", trySsid.c_str());
@@ -269,8 +272,11 @@ void wifiLoop() {
   }
 
   if (!portalOpen && !up && now - lastUpMs > PORTAL_AFTER_MS) openPortal();
+  // Close once back online: soon after a successful setup, otherwise when no phone is on it
+  // (a phone may stay on it, or rejoin it since it has no password, so there is a time limit too)
   if (portalOpen && up &&
-      ((now - upSinceMs > 30000 && !phoneOnPortal) || now - upSinceMs > PORTAL_MAX_CONNECTED_MS))
+      ((tryResult == "connected" && now - tryDoneMs > PORTAL_AFTER_SETUP_MS) ||
+       (now - upSinceMs > 30000 && !phoneOnPortal) || now - upSinceMs > PORTAL_MAX_CONNECTED_MS))
     closePortal();
 }
 

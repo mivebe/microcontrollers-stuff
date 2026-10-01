@@ -128,3 +128,23 @@
     @apply font-sans;
     }
 }
+/* LED preview on the Control tab: the same light curves as renderLed() in the firmware.
+   One cycle lasts --led-period. Breathe is (1 - cos)/2, i.e. an ease-in-out sine from off to
+   full and back; blink is full for the first half, off for the second. */
+@keyframes led-breathe {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+@keyframes led-blink {
+  0%, 49.99% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+.led-breathe {
+  animation: led-breathe var(--led-period) cubic-bezier(0.37, 0, 0.63, 1) infinite;
+}
+.led-blink {
+  animation: led-blink var(--led-period) linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .led-breathe, .led-blink { animation: none; }
+}
