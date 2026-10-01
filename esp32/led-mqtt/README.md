@@ -10,7 +10,7 @@ Phone / browser ──wss:8884──► HiveMQ Cloud ◄──mqtts:8883── E
 Web app: **https://mivebe.github.io/microcontrollers-stuff/** (deployed by `.github/workflows/pages.yml`
 on every push that touches `web/` or the firmware, together with the firmware for OTA updates).
 
-Plans: [docs/](docs/) (current work and future ideas, as checklists).
+Plans: `docs/` at the repo root (current work and future ideas, as checklists; local only, git-ignored).
 
 ## Code
 

@@ -231,6 +231,13 @@ void wifiBegin() {
 }
 
 void wifiLoop() {
+  // Serve the portal first: a save starts a new connection attempt, and the time and WiFi
+  // status below must be read after that
+  if (portalOpen) {
+    dns.processNextRequest();
+    server.handleClient();
+  }
+
   uint32_t now = millis();
   bool up = WiFi.status() == WL_CONNECTED;
   if (up) {
@@ -241,14 +248,10 @@ void wifiLoop() {
     upSinceMs = 0;
   }
 
-  if (portalOpen) {
-    dns.processNextRequest();
-    server.handleClient();
-  }
-
-  // Outcome of a network entered on the portal
+  // Outcome of a network entered on the portal. The connection must have come up after the
+  // save: the board may still report the connection it had before.
   if (tryResult == "connecting") {
-    if (up && WiFi.SSID() == trySsid) {
+    if (up && WiFi.SSID() == trySsid && upSinceMs >= tryStartMs) {
       tryResult = "connected";
     } else if (now - tryStartMs > CONNECT_TIMEOUT_MS) {
       tryResult = "failed";
