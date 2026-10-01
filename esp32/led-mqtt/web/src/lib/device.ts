@@ -25,7 +25,47 @@ export interface DeviceState {
 
 /** JSON accepted on <prefix>/cmd (any subset) */
 export type Command = Partial<Pick<DeviceState, 'on' | 'brightness' | 'mode' | 'period' | 'interval'>> & {
-  action?: 'restart' | 'logs' | 'state'
+  action?: 'restart' | 'logs' | 'state' | 'update'
+  /** Firmware .bin to install, with action 'update' */
+  url?: string
+}
+
+/** JSON on <prefix>/ota while the device installs an update */
+export interface RawOta {
+  state: 'downloading' | 'rebooting' | 'failed'
+  progress?: number
+  error?: string
+}
+
+/** Update progress as tracked by the web app (adds the start and the final outcome) */
+export interface OtaProgress {
+  state: 'starting' | RawOta['state'] | 'done'
+  target: string
+  progress?: number
+  error?: string
+}
+
+/** firmware/manifest.json, published next to the web app by .github/workflows/pages.yml */
+export interface FirmwareManifest {
+  version: string
+  file: string
+  size: number
+  sha256: string
+  built: string
+  commit: string
+}
+
+export const FIRMWARE_MANIFEST_URL = 'https://mivebe.github.io/microcontrollers-stuff/firmware/manifest.json'
+
+/** Compares dotted version numbers: negative if a < b, 0 if equal, positive if a > b */
+export function compareVersions(a: string, b: string) {
+  const pa = a.split('.').map(Number)
+  const pb = b.split('.').map(Number)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0)
+    if (d) return d
+  }
+  return 0
 }
 
 export type LogLevel = 'I' | 'W' | 'E'

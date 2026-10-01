@@ -4,6 +4,7 @@ import {
   Cloud,
   CloudOff,
   Cpu,
+  Download,
   Loader2,
   Moon,
   ScrollText,
@@ -25,8 +26,9 @@ import { ControlTab } from '@/components/control-tab'
 import { DeviceTab } from '@/components/device-tab'
 import { LogsTab } from '@/components/logs-tab'
 import { useDevice, type BrokerStatus, type DeviceStatus } from '@/hooks/use-device'
+import { useFirmware } from '@/hooks/use-firmware'
 import { cn } from '@/lib/utils'
-import { type ConnectionSettings, DEFAULT_SETTINGS } from '@/lib/device'
+import { type ConnectionSettings, DEFAULT_SETTINGS, compareVersions } from '@/lib/device'
 
 const STORAGE_KEY = 'led-mqtt-settings'
 
@@ -63,9 +65,13 @@ function Dashboard() {
   const [settings, setSettings] = useState<ConnectionSettings | null>(loadSettings)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const device = useDevice(settings)
+  const firmware = useFirmware()
+  const [tab, setTab] = useState('control')
 
   const connected = device.broker === 'connected'
   const controllable = connected && device.status === 'online'
+  const latestFw = firmware.latest?.version
+  const updateAvailable = !!latestFw && !!device.state?.fw && compareVersions(latestFw, device.state.fw) > 0
 
   function save(s: ConnectionSettings | null) {
     storeSettings(s)
@@ -110,6 +116,13 @@ function Dashboard() {
           <div className="flex flex-wrap gap-2">
             <BrokerBadge status={device.broker} />
             <DeviceBadge status={device.status} />
+            {updateAvailable && (
+              <button onClick={() => setTab('device')}>
+                <Badge variant="outline" className="gap-1.5 text-sky-600 dark:text-sky-400">
+                  <Download /> Update v{latestFw} available
+                </Badge>
+              </button>
+            )}
           </div>
 
           {device.error && device.broker !== 'connected' && (
@@ -126,7 +139,7 @@ function Dashboard() {
             </Banner>
           )}
 
-          <Tabs defaultValue="control" className="gap-4">
+          <Tabs value={tab} onValueChange={setTab} className="gap-4">
             <TabsList className="w-full">
               <TabsTrigger value="control">
                 <SlidersHorizontal /> Control
@@ -137,6 +150,7 @@ function Dashboard() {
               </TabsTrigger>
               <TabsTrigger value="device">
                 <Cpu /> Device
+                {updateAvailable && <span className="size-1.5 rounded-full bg-sky-500" />}
               </TabsTrigger>
             </TabsList>
             <TabsContent value="control">
@@ -146,7 +160,16 @@ function Dashboard() {
               <LogsTab logs={device.logs} connected={controllable} send={device.send} clear={device.clearLogs} />
             </TabsContent>
             <TabsContent value="device">
-              <DeviceTab state={device.state} stateAt={device.stateAt} disabled={!controllable} send={device.send} />
+              <DeviceTab
+                state={device.state}
+                stateAt={device.stateAt}
+                disabled={!controllable}
+                send={device.send}
+                firmware={firmware}
+                ota={device.ota}
+                update={device.update}
+                dismissOta={device.dismissOta}
+              />
             </TabsContent>
           </Tabs>
 

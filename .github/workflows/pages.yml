@@ -1,12 +1,19 @@
-# Builds the ESP32 LED remote-control web app (esp32/led-mqtt/web) and publishes it to GitHub Pages:
-# https://mivebe.github.io/microcontrollers-stuff/
-name: Deploy LED web app to Pages
+# Builds the ESP32 LED remote-control web app (esp32/led-mqtt/web) and the device firmware, and
+# publishes both to GitHub Pages:
+#   https://mivebe.github.io/microcontrollers-stuff/                          web app
+#   https://mivebe.github.io/microcontrollers-stuff/firmware/manifest.json    latest firmware info
+#   https://mivebe.github.io/microcontrollers-stuff/firmware/firmware-<version>.bin
+# The firmware is built without secrets.h; the device keeps its WiFi/broker settings in flash.
+name: Deploy LED web app + firmware to Pages
 
 on:
   push:
     branches: [master]
     paths:
       - esp32/led-mqtt/web/**
+      - esp32/led-mqtt/src/**
+      - esp32/led-mqtt/include/**
+      - esp32/led-mqtt/platformio.ini
       - .github/workflows/pages.yml
   workflow_dispatch:
 
@@ -34,6 +41,37 @@ jobs:
           cache-dependency-path: esp32/led-mqtt/web/package-lock.json
       - run: npm ci
       - run: npm run build
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('esp32/led-mqtt/platformio.ini') }}
+      - run: pip install platformio
+      - name: Build firmware
+        working-directory: esp32/led-mqtt
+        run: pio run -e esp32dev
+      - name: Add firmware and manifest to the site
+        working-directory: esp32/led-mqtt
+        run: |
+          version=$(sed -n 's/^#define FW_VERSION "\(.*\)"/\1/p' include/version.h)
+          test -n "$version"
+          file="firmware-$version.bin"
+          mkdir -p web/dist/firmware
+          cp .pio/build/esp32dev/firmware.bin "web/dist/firmware/$file"
+          cat > web/dist/firmware/manifest.json <<EOF
+          {
+            "version": "$version",
+            "file": "$file",
+            "size": $(stat -c %s "web/dist/firmware/$file"),
+            "sha256": "$(sha256sum "web/dist/firmware/$file" | cut -d' ' -f1)",
+            "built": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "commit": "$GITHUB_SHA"
+          }
+          EOF
+          cat web/dist/firmware/manifest.json
       - uses: actions/upload-pages-artifact@v3
         with:
           path: esp32/led-mqtt/web/dist

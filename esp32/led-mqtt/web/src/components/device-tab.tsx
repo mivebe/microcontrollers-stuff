@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react'
 import {
+  CircleAlert,
+  CircleCheck,
   Clock,
   Cpu,
+  Download,
   Fingerprint,
+  Loader2,
   MemoryStick,
   Network,
   Package,
@@ -26,7 +30,16 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { type Command, type DeviceState, formatBytes, formatDuration, signalQuality } from '@/lib/device'
+import type { useFirmware } from '@/hooks/use-firmware'
+import {
+  type Command,
+  type DeviceState,
+  type OtaProgress,
+  compareVersions,
+  formatBytes,
+  formatDuration,
+  signalQuality,
+} from '@/lib/device'
 
 const INTERVALS = [
   { s: 10, label: 'Every 10 seconds' },
@@ -41,9 +54,13 @@ interface Props {
   stateAt: number | null
   disabled: boolean
   send: (cmd: Command) => void
+  firmware: ReturnType<typeof useFirmware>
+  ota: OtaProgress | null
+  update: (url: string, version: string) => void
+  dismissOta: () => void
 }
 
-export function DeviceTab({ state, stateAt, disabled, send }: Props) {
+export function DeviceTab({ state, stateAt, disabled, send, firmware, ota, update, dismissOta }: Props) {
   const now = useNow()
   // Uptime keeps counting between state reports
   const uptime = state && stateAt ? state.uptime + (now - stateAt) / 1000 : null
@@ -97,6 +114,16 @@ export function DeviceTab({ state, stateAt, disabled, send }: Props) {
           </dl>
         </CardContent>
       </Card>
+
+      <FirmwareCard
+        installed={state?.fw}
+        firmware={firmware}
+        ota={ota}
+        disabled={disabled}
+        update={update}
+        dismissOta={dismissOta}
+        now={now}
+      />
 
       <Card>
         <CardHeader>
@@ -164,6 +191,146 @@ export function DeviceTab({ state, stateAt, disabled, send }: Props) {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+const OTA_LABELS: Record<OtaProgress['state'], string> = {
+  starting: 'Asking the device to update…',
+  downloading: 'Downloading and installing',
+  rebooting: 'Rebooting into the new firmware…',
+  failed: 'Update failed',
+  done: 'Update complete',
+}
+
+function FirmwareCard({
+  installed,
+  firmware,
+  ota,
+  disabled,
+  update,
+  dismissOta,
+  now,
+}: {
+  installed?: string
+  firmware: ReturnType<typeof useFirmware>
+  ota: OtaProgress | null
+  disabled: boolean
+  update: (url: string, version: string) => void
+  dismissOta: () => void
+  now: number
+}) {
+  const { latest, binUrl, checking, checkedAt, error, check } = firmware
+  const cmp = latest && installed ? compareVersions(latest.version, installed) : null
+  const busy = !!ota && ota.state !== 'failed' && ota.state !== 'done'
+
+  let status: React.ReactNode
+  if (ota) {
+    status = (
+      <div className="grid gap-2">
+        <div
+          className={cn(
+            'flex items-center gap-2 text-sm',
+            ota.state === 'failed' && 'text-red-600 dark:text-red-400',
+            ota.state === 'done' && 'text-emerald-600 dark:text-emerald-400',
+          )}
+        >
+          {busy ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : ota.state === 'done' ? (
+            <CircleCheck className="size-4" />
+          ) : (
+            <CircleAlert className="size-4" />
+          )}
+          <span className="flex-1">
+            {OTA_LABELS[ota.state]}
+            {ota.state === 'downloading' && ota.progress !== undefined && ` (${ota.progress}%)`}
+            {ota.error && `: ${ota.error}`}
+          </span>
+          {!busy && (
+            <button className="text-xs text-muted-foreground underline" onClick={dismissOta}>
+              Dismiss
+            </button>
+          )}
+        </div>
+        {busy && (
+          <div className="h-2 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-sky-500 transition-[width] duration-500"
+              style={{ width: `${ota.state === 'rebooting' ? 100 : (ota.progress ?? 0)}%` }}
+            />
+          </div>
+        )}
+      </div>
+    )
+  } else if (error) {
+    status = <p className="text-sm text-red-600 dark:text-red-400">Could not check for updates: {error}</p>
+  } else if (!latest || cmp === null) {
+    status = (
+      <p className="text-sm text-muted-foreground">
+        {checking ? 'Checking…' : 'Waiting for the device to report its version'}
+      </p>
+    )
+  } else if (cmp > 0) {
+    status = (
+      <p className="flex items-center gap-2 text-sm text-sky-600 dark:text-sky-400">
+        <Download className="size-4" /> v{latest.version} is available
+      </p>
+    )
+  } else {
+    status = (
+      <p className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400">
+        <CircleCheck className="size-4" />
+        {cmp === 0 ? 'Up to date' : `The device runs a newer build than the published v${latest.version}`}
+      </p>
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Package className="size-4" /> Firmware
+        </CardTitle>
+        <CardDescription>
+          Installed {installed ? `v${installed}` : '—'} · Latest published {latest ? `v${latest.version}` : '—'}
+          {latest && ` (built ${formatDuration((now - Date.parse(latest.built)) / 1000)} ago)`}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        {status}
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="outline" onClick={() => void check()} disabled={checking}>
+            <RefreshCw className={cn(checking && 'animate-spin')} /> Check for updates
+          </Button>
+          {latest && cmp !== null && cmp > 0 && binUrl && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button disabled={disabled || busy}>
+                  <Download /> Update to v{latest.version}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Install firmware v{latest.version}?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    The ESP32 downloads the new firmware ({formatBytes(latest.size)}), installs it and reboots. This
+                    takes about a minute. If the new version can't reconnect to the broker, the device goes back to
+                    v{installed} by itself.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => update(binUrl, latest.version)}>Update</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+          {checkedAt && (
+            <span className="text-xs text-muted-foreground">Checked {formatDuration((now - checkedAt) / 1000)} ago</span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 

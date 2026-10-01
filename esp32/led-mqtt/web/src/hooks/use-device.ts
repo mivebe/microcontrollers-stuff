@@ -1,22 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import mqtt, { type MqttClient } from 'mqtt'
 import { toast } from 'sonner'
-import type { Command, ConnectionSettings, DeviceState, LogEntry, RawLog } from '@/lib/device'
+import type { Command, ConnectionSettings, DeviceState, LogEntry, OtaProgress, RawLog, RawOta } from '@/lib/device'
 
 export type BrokerStatus = 'idle' | 'connecting' | 'connected' | 'disconnected'
 export type DeviceStatus = 'online' | 'offline' | 'unknown'
 
 const MAX_LOGS = 1000
 const COMMAND_TIMEOUT_MS = 5000
+const OTA_START_TIMEOUT_MS = 30000 // device must start downloading within this
+const OTA_REBOOT_TIMEOUT_MS = 3 * 60 * 1000 // and be back online after rebooting within this
 
 /**
  * Connects to the MQTT broker and exposes the device's state, logs and a command sender.
- * Topics: <prefix>/state, /status, /log (subscribed) and <prefix>/cmd (published).
+ * Topics: <prefix>/state, /status, /log, /ota (subscribed) and <prefix>/cmd (published).
  */
 export function useDevice(settings: ConnectionSettings | null) {
   const clientRef = useRef<MqttClient | null>(null)
   const bootStartRef = useRef<number | null>(null) // device boot time in epoch ms
   const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const otaTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const otaRef = useRef<OtaProgress | null>(null) // mirrors `ota` for the message handler
 
   const [broker, setBroker] = useState<BrokerStatus>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -25,6 +29,22 @@ export function useDevice(settings: ConnectionSettings | null) {
   const [stateAt, setStateAt] = useState<number | null>(null)
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [pending, setPending] = useState(false)
+  const [ota, setOtaState] = useState<OtaProgress | null>(null)
+
+  const setOta = useCallback((next: OtaProgress | null, timeoutMs?: number) => {
+    otaRef.current = next
+    setOtaState(next)
+    if (otaTimer.current) clearTimeout(otaTimer.current)
+    if (next && timeoutMs) {
+      otaTimer.current = setTimeout(() => {
+        const cur = otaRef.current
+        if (!cur) return
+        const error = cur.state === 'starting' ? 'The device did not start the update' : 'The device did not come back online'
+        setOta({ ...cur, state: 'failed', error })
+        toast.error(`Update failed: ${error}`)
+      }, timeoutMs)
+    }
+  }, [])
 
   useEffect(() => {
     if (!settings) return
@@ -44,7 +64,7 @@ export function useDevice(settings: ConnectionSettings | null) {
     client.on('connect', () => {
       setBroker('connected')
       setError(null)
-      client.subscribe([`${prefix}/state`, `${prefix}/status`, `${prefix}/log`], { qos: 1 }, () => {
+      client.subscribe([`${prefix}/state`, `${prefix}/status`, `${prefix}/log`, `${prefix}/ota`], { qos: 1 }, () => {
         // Ask the device to replay its recent log history
         client.publish(`${prefix}/cmd`, JSON.stringify({ action: 'logs' }), { qos: 1 })
       })
@@ -67,6 +87,19 @@ export function useDevice(settings: ConnectionSettings | null) {
           setStateAt(Date.now())
           setPending(false)
           if (pendingTimer.current) clearTimeout(pendingTimer.current)
+
+          // Fresh boot after an update: did the new firmware stick?
+          const cur = otaRef.current
+          if (cur?.state === 'rebooting' && s.uptime < 300) {
+            if (s.fw === cur.target) {
+              setOta({ ...cur, state: 'done' })
+              toast.success(`Updated to firmware v${s.fw}`)
+            } else {
+              const error = `The new firmware did not start; rolled back to v${s.fw}`
+              setOta({ ...cur, state: 'failed', error })
+              toast.error(error)
+            }
+          }
         } catch {
           // ignore malformed state
         }
@@ -78,6 +111,22 @@ export function useDevice(settings: ConnectionSettings | null) {
         } catch {
           // ignore malformed log line
         }
+      } else if (kind === 'ota') {
+        try {
+          const raw = JSON.parse(text) as RawOta
+          const cur = otaRef.current
+          const target = cur?.target ?? '?' // an update started from another browser
+          if (raw.state === 'failed') {
+            setOta({ target, state: 'failed', error: raw.error })
+            toast.error(`Update failed: ${raw.error ?? 'unknown error'}`)
+          } else {
+            // Watchdog: each progress message restarts the timer
+            const timeout = raw.state === 'rebooting' ? OTA_REBOOT_TIMEOUT_MS : OTA_START_TIMEOUT_MS
+            setOta({ target, state: raw.state, progress: raw.progress }, timeout)
+          }
+        } catch {
+          // ignore malformed progress
+        }
       }
     })
 
@@ -88,8 +137,9 @@ export function useDevice(settings: ConnectionSettings | null) {
       setStatus('unknown')
       setState(null)
       setLogs([])
+      setOta(null)
     }
-  }, [settings])
+  }, [settings, setOta])
 
   const send = useCallback(
     (cmd: Command) => {
@@ -117,7 +167,17 @@ export function useDevice(settings: ConnectionSettings | null) {
 
   const clearLogs = useCallback(() => setLogs([]), [])
 
-  return { broker, error, status, state, stateAt, logs, pending, send, clearLogs }
+  /** Asks the device to download and install the firmware at `url` */
+  const update = useCallback(
+    (url: string, version: string) => {
+      send({ action: 'update', url })
+      setOta({ state: 'starting', target: version }, OTA_START_TIMEOUT_MS)
+    },
+    [send, setOta],
+  )
+  const dismissOta = useCallback(() => setOta(null), [setOta])
+
+  return { broker, error, status, state, stateAt, logs, pending, ota, send, update, dismissOta, clearLogs }
 }
 
 function toEntry(raw: RawLog, bootStart: number | null): LogEntry {
