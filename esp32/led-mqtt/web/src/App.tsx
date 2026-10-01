@@ -74,8 +74,8 @@ function Dashboard() {
   }
 
   return (
-    <div className="mx-auto flex min-h-svh max-w-2xl flex-col gap-4 px-4 pt-4 pb-10">
-      <header className="flex items-center gap-3">
+    <div className="mx-auto flex min-h-svh max-w-2xl flex-col gap-4 px-4 pb-10">
+      <header className="sticky top-0 z-40 -mx-4 flex items-center gap-3 border-b bg-background/80 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 backdrop-blur-md">
         <div className="grid size-10 place-items-center rounded-xl bg-sky-500 text-white shadow-lg shadow-sky-500/30">
           <Cpu className="size-5" />
         </div>
