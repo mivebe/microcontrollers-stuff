@@ -28,3 +28,4 @@ If upload hangs on "Connecting...", hold the **BOOT** button until writing start
 - `hello-esp32/` — smoke test: prints chip info, scans WiFi, blinks the onboard LED (GPIO2).
 - `led-web/` — ESP32 as its own WiFi access point serving a React page from LittleFS (local control).
 - `led-mqtt/` — LED controlled from anywhere via HiveMQ Cloud MQTT + React web app.
+- `ble-mouse/` — Bluetooth LE mouse that jiggles the cursor so the paired computer never goes idle.
